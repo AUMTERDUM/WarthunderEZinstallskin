@@ -51,29 +51,10 @@ npm run preview # Preview production build
 3. **เลือกโฟลเดอร์** - คลิก 📂 เพื่อเลือก UserSkins folder (ถ้าไม่ใช่ default)
 4. **คลิก Install** - รอสักครู่ เสร็จ!
 
-### Default Path
 ```
 F:\SteamLibrary\steamapps\common\War Thunder\UserSkins
 ```
 
-## 🌐 Demo & Deployment
-
-### Demo แบบชั่วคราว (Quick!)
-
-**ใช้ ngrok** (แนะนำ):
-```bash
-npm start
-# Terminal ใหม่
-ngrok http 3000
-```
-จะได้ URL เช่น `https://abc123.ngrok-free.app` แชร์ได้เลย!
-
-**ใช้ Cloudflare Tunnel**:
-```bash
-cloudflared tunnel --url http://localhost:3000
-```
-
-### Deploy แบบถาวร (24/7)
 
 **Railway.app** (แนะนำ):
 1. ไป https://railway.app
@@ -104,35 +85,6 @@ WarthunderEZinstallskin/
 └── package.json      # Dependencies & scripts
 ```
 
-## 🎯 Default Installation Path
-
-```
-F:\SteamLibrary\steamapps\common\War Thunder\UserSkins
-```
-
-Path นี้จะถูกบันทึกใน `localStorage` หลังจากคุณเลือกครั้งแรก
-
-## 🔒 Security Features
-
-- **Zip Bomb Protection**: จำกัดไฟล์สูงสุด 5,000 entries และขนาด 1GB
-- **Path Traversal Prevention**: ป้องกันการแตกไฟล์นอก UserSkins folder
-- **File Validation**: ตรวจสอบโครงสร้างและเตือนถ้าไม่มี .blk files
-- **File Size Limit**: จำกัดไฟล์ upload 250MB ต่อไฟล์
-
-## 📱 PWA - ติดตั้งเป็นแอป
-
-### Windows (Chrome/Edge):
-1. เปิด http://localhost:3000
-2. คลิกไอคอน **⊕ Install** ที่แถบ URL
-3. หรือ เมนู ⋮ → "Install War Thunder Auto Skin..."
-
-### Android:
-1. เปิดเว็บใน Chrome
-2. เมนู ⋮ → "Add to Home screen"
-
-### iOS/Mac:
-1. เปิดเว็บใน Safari
-2. กด Share → "Add to Home Screen"
 
 ## 🛠️ Tech Stack
 
@@ -155,37 +107,6 @@ Path นี้จะถูกบันทึกใน `localStorage` หลั�
 --border: rgba(139, 69, 69, 0.35); /* Red border */
 ```
 
-## ⚙️ Configuration
-
-### Environment Variables (Optional)
-
-```env
-PORT=3000  # Default server port
-```
-
-### package.json Scripts
-
-```json
-{
-  "start": "node server.js",      // Production server
-  "dev": "vite",                   // Development mode
-  "build": "vite build",           // Build for production
-  "preview": "vite preview"        // Preview production build
-}
-```
-
-## 🐛 Troubleshooting
-
-### Port 3000 already in use
-```bash
-# Kill process on port 3000
-Get-NetTCPConnection -LocalPort 3000 | Select-Object -ExpandProperty OwningProcess | Stop-Process -Force
-```
-
-### Node.js not found
-- ติดตั้ง Node.js 18 ขึ้นไปจาก https://nodejs.org
-
-### Folder picker ไม่ทำงาน
 - ใช้ได้เฉพาะ Windows
 - ต้องรัน local (localhost)
 - ไม่ support บน deployed server
@@ -201,17 +122,10 @@ Get-NetTCPConnection -LocalPort 3000 | Select-Object -ExpandProperty OwningProce
 
 Pull requests are welcome! For major changes, please open an issue first.
 
-## 📄 License
-
-MIT
-
 ## 🎮 War Thunder
 
 This is a **fan-made tool** for War Thunder game.  
 **Not affiliated with Gaijin Entertainment.**
-
-War Thunder™ is a trademark of Gaijin Network Ltd.
-
 ---
 
-Made with ❤️ for War Thunder players
+Made with ❤️ for War Thunder Thailand players
