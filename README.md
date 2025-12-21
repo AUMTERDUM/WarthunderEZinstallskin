@@ -51,19 +51,6 @@ npm run preview # Preview production build
 3. **เลือกโฟลเดอร์** - คลิก 📂 เพื่อเลือก UserSkins folder (ถ้าไม่ใช่ default)
 4. **คลิก Install** - รอสักครู่ เสร็จ!
 
-```
-F:\SteamLibrary\steamapps\common\War Thunder\UserSkins
-```
-
-
-**Railway.app** (แนะนำ):
-1. ไป https://railway.app
-2. Login ด้วย GitHub
-3. New Project → Deploy from GitHub
-4. เลือก repo นี้
-5. ✅ Deploy อัตโนมัติ!
-
-ดูรายละเอียดเพิ่มใน [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ## 📦 โครงสร้างโปรเจ็กต์
 
