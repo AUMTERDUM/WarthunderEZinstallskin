@@ -4,6 +4,9 @@
   "private": true,
   "description": "Local web app to install War Thunder UserSkins from zip",
   "main": "server.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "vite",
