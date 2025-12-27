@@ -1,0 +1,128 @@
+graphicsQuality:t="max"
+use_eac:b=yes
+use_release_candidate:b=no
+releaseChannel:t=""
+rdseed:i=1325062664
+language:t="English"
+forcedLauncher:i=0
+
+video{
+  antialiasing_mode:t="taa"
+  antialiasing_upscaling:t="native"
+  mode:t="fullscreenwindowed"
+  windowed:b=no
+  resolution:t="1920 x 1080"
+  vsync:b=no
+  driver:t="auto"
+  latency:i=0
+  fonts:t="small"
+  antialiasing_sharpening:i=0
+  vrStreamerMode:b=no
+  perfMetrics:i=1
+  compatibilityMode:b=no
+  monitor:t="auto"
+  vreye:t="left"
+  antialiasing_fgc:i=0
+  enableHdr:b=no
+}
+
+graphics{
+  backgroundScale:r=1
+  anisotropy:i=16
+  ssaa:r=1
+  texquality:t="high"
+  shadowQuality:t="high"
+  waterQuality:t="high"
+  waterEffectsQuality:t="high"
+  cloudsQuality:i=1
+  panoramaResolution:i=2560
+  fxTarget:t="high"
+  landquality:i=3
+  tireTracksQuality:i=2
+  mirrorQuality:i=10
+  giQuality:t="medium"
+  physicsQuality:i=4
+  displacementQuality:i=2
+  dirtSubDiv:i=2
+  rendinstDistMul:r=1.3
+  fxDensityMul:r=0.95
+  grassRadiusMul:r=1
+  contactShadowsQuality:i=1
+  advancedShore:b=yes
+  lastClipSize:i=8192
+  clipmapScale:r=0.5
+  RTAOQuality:t="off"
+  skyQuality:i=1
+  RTRTranslucent:t="off"
+  compatibilityShadowQuality:t="low"
+  bvhRiGenRange:i=3000
+  RTRWaterRes:t="half"
+  RTRRes:t="half"
+  RTRQuality:t="off"
+  motionBlurStrength:i=0
+  lenseFlares:b=yes
+  enableRTSM:t="off"
+  riGpuObjects:b=yes
+  bvhMode:t="off"
+  RTRWater:b=no
+  motionBlurCancelCamera:b=no
+  enableBVH:b=no
+  bloomQuality:i=2
+  PTGIQuality:t="off"
+  RTSMQuality:t="low"
+  fxQuality:t="high"
+  fxDistortionStrength:r=1
+  volfogQuality:t="off"
+}
+
+render{
+  ssrQuality:i=1
+  ssaoQuality:i=2
+  haze:b=yes
+  shadows:b=yes
+  selfReflection:b=yes
+}
+
+debug{
+  netLogerr:b=yes
+  screenshotHiRes:b=no
+  screenshotAsJpeg:b=yes
+  testLocalization:b=yes
+  enableNvHighlights:t="auto"
+}
+
+directx{
+  enableHdr:b=no
+}
+
+gameplay{
+  enableVR:b=no
+}
+
+sound{
+  fmod_sound_enable:b=yes
+  speakerMode:t="auto"
+  enable_mod:b=yes
+}
+
+download{
+  upl_speed_rate:i=5000
+  seeding_on:b=no
+  peer_exchange:b=yes
+  dnl_limit:b=no
+  DHT:b=yes
+  upl_limit:b=no
+  dnl_speed_rate:i=5000
+  UTP2:b=no
+}
+
+launcher{
+  startup_with_windows:b=no
+  bg_tray:b=yes
+  hide_to_tray_option:b=yes
+  bg_update:b=no
+}
+
+yunetwork{
+  curCircuit:t="production"
+}
