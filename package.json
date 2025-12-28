@@ -1,17 +1,25 @@
 {
-  "name": "wt-auto-skin-web",
-  "version": "0.1.0",
+  "name": "wt-auto-skin",
+  "version": "1.0.0",
   "private": true,
-  "description": "Local web app to install War Thunder UserSkins from zip",
-  "main": "server.js",
+  "description": "Desktop app to install War Thunder UserSkins and Sound Mods from zip",
+  "main": "electron/main.js",
+  "author": "AUMTERDUM",
+  "license": "MIT",
   "engines": {
     "node": ">=20.19.0"
   },
   "scripts": {
     "start": "node server.js",
     "dev": "vite",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "build:electron": "npm run build && electron-builder",
+    "electron": "electron .",
+    "preview": "vite preview",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
     "express": "^4.21.2",
@@ -22,7 +30,44 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.1.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.warthunder.autoskin",
+    "productName": "War Thunder Auto Skin",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "public",
+        "to": "public"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/wt-logo.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false
+    }
   }
 }

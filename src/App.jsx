@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import './App.css';
 
-const DEFAULT_GAME_FOLDER = 'F:\\SteamLibrary\\steamapps\\common\\War Thunder';
+const DEFAULT_GAME_FOLDER = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\War Thunder';
 const GAME_FOLDER_KEY = 'wt_auto_skin_game_folder_v1';
+
+// Check if running in Electron
+const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron === true;
 
 function App() {
   const [activeTab, setActiveTab] = useState('skin'); // 'skin' or 'sound'
@@ -49,11 +52,18 @@ function App() {
 
   const checkSoundModStatus = async () => {
     try {
-      const resp = await fetch(`/api/check-sound-mod?gameFolder=${encodeURIComponent(gameFolder)}`);
-      if (resp.ok) {
-        const data = await resp.json();
+      if (isElectron) {
+        const data = await window.electronAPI.checkSoundMod({ gameFolder });
         if (data.ok) {
           setSoundModEnabled(data.enabled);
+        }
+      } else {
+        const resp = await fetch(`/api/check-sound-mod?gameFolder=${encodeURIComponent(gameFolder)}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.ok) {
+            setSoundModEnabled(data.enabled);
+          }
         }
       }
     } catch {
@@ -64,12 +74,17 @@ function App() {
   const handleEnableSoundMod = async () => {
     setIsEnablingConfig(true);
     try {
-      const resp = await fetch('/api/enable-sound-mod', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameFolder })
-      });
-      const data = await resp.json();
+      let data;
+      if (isElectron) {
+        data = await window.electronAPI.enableSoundMod({ gameFolder });
+      } else {
+        const resp = await fetch('/api/enable-sound-mod', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameFolder })
+        });
+        data = await resp.json();
+      }
       if (data.ok) {
         setSoundModEnabled(true);
         setSoundStatus({ kind: 'ok', message: data.message });
@@ -85,15 +100,20 @@ function App() {
 
   const handleBrowseGameFolder = async () => {
     try {
-      const resp = await fetch('/api/browse-folder');
-      if (!resp.ok) {
-        alert(`ไม่สามารถเชื่อมต่อ backend (HTTP ${resp.status})`);
-        return;
-      }
-      const data = await resp.json().catch(() => null);
-      if (!data) {
-        alert('Backend ตอบกลับมาผิดรูปแบบ');
-        return;
+      let data;
+      if (isElectron) {
+        data = await window.electronAPI.browseFolder();
+      } else {
+        const resp = await fetch('/api/browse-folder');
+        if (!resp.ok) {
+          alert(`ไม่สามารถเชื่อมต่อ backend (HTTP ${resp.status})`);
+          return;
+        }
+        data = await resp.json().catch(() => null);
+        if (!data) {
+          alert('Backend ตอบกลับมาผิดรูปแบบ');
+          return;
+        }
       }
       if (data.ok && data.path) {
         setGameFolder(data.path);
@@ -203,35 +223,65 @@ function App() {
     const warnings = [];
 
     try {
-      for (let i = 0; i < soundFiles.length; i++) {
-        const zip = soundFiles[i];
-        setSoundStatus({ kind: 'work', message: `กำลังติดตั้ง... (${i + 1}/${soundFiles.length})\n${zip.name}` });
-
-        const fd = new FormData();
-        fd.append('zip', zip);
-        fd.append('dest', soundDest);
-        fd.append('force', soundForce ? 'true' : 'false');
-
-        const resp = await fetch('/api/install-sound', { method: 'POST', body: fd });
+      if (isElectron) {
+        // Electron: use IPC
+        setSoundStatus({ kind: 'work', message: `กำลังติดตั้ง... (${soundFiles.length} ไฟล์)` });
         
-        if (!resp.ok) {
+        // Use webUtils.getPathForFile() to get actual file path in Electron
+        const filesData = soundFiles.map(f => ({
+          name: f.name,
+          path: window.electronAPI.getFilePath(f),
+        }));
+
+        const data = await window.electronAPI.installSound({
+          files: filesData,
+          dest: soundDest,
+          force: soundForce,
+        });
+
+        if (data.results) {
+          data.results.forEach(r => {
+            if (r.warnings) {
+              r.warnings.forEach(w => warnings.push({ file: r.file, warning: w }));
+            }
+            results.push({ file: r.file, installedPath: r.installedPath });
+          });
+        }
+        if (data.errors) {
+          data.errors.forEach(e => errors.push(e));
+        }
+      } else {
+        // Web: use fetch API
+        for (let i = 0; i < soundFiles.length; i++) {
+          const zip = soundFiles[i];
+          setSoundStatus({ kind: 'work', message: `กำลังติดตั้ง... (${i + 1}/${soundFiles.length})\n${zip.name}` });
+
+          const fd = new FormData();
+          fd.append('zip', zip);
+          fd.append('dest', soundDest);
+          fd.append('force', soundForce ? 'true' : 'false');
+
+          const resp = await fetch('/api/install-sound', { method: 'POST', body: fd });
+          
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => null);
+            const msg = data?.error || `HTTP ${resp.status}`;
+            errors.push({ file: zip.name, error: msg });
+            continue;
+          }
+
           const data = await resp.json().catch(() => null);
-          const msg = data?.error || `HTTP ${resp.status}`;
-          errors.push({ file: zip.name, error: msg });
-          continue;
-        }
+          if (!data) {
+            errors.push({ file: zip.name, error: 'Backend ตอบกลับมาผิดรูปแบบ' });
+            continue;
+          }
 
-        const data = await resp.json().catch(() => null);
-        if (!data) {
-          errors.push({ file: zip.name, error: 'Backend ตอบกลับมาผิดรูปแบบ' });
-          continue;
-        }
+          if (data && Array.isArray(data.warnings) && data.warnings.length) {
+            data.warnings.forEach(w => warnings.push({ file: zip.name, warning: String(w) }));
+          }
 
-        if (data && Array.isArray(data.warnings) && data.warnings.length) {
-          data.warnings.forEach(w => warnings.push({ file: zip.name, warning: String(w) }));
+          results.push({ file: zip.name, installedPath: data.installedPath });
         }
-
-        results.push({ file: zip.name, installedPath: data.installedPath });
       }
 
       const lines = [];
@@ -263,7 +313,7 @@ function App() {
       setSoundStatus({ kind: finalKind, message: lines.join('\n') });
     } catch (err) {
       let errMsg = `ผิดพลาด: ${err.message || String(err)}`;
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      if (!isElectron && err.name === 'TypeError' && err.message.includes('fetch')) {
         errMsg = 'ไม่สามารถเชื่อมต่อ backend\nกรุณารัน backend ที่ port 3000';
       }
       setSoundStatus({ kind: 'err', message: errMsg });
@@ -287,35 +337,65 @@ function App() {
     const warnings = [];
 
     try {
-      for (let i = 0; i < files.length; i++) {
-        const zip = files[i];
-        setStatus({ kind: 'work', message: `กำลังติดตั้ง... (${i + 1}/${files.length})\n${zip.name}` });
-
-        const fd = new FormData();
-        fd.append('zip', zip);
-        fd.append('dest', skinDest);
-        fd.append('force', force ? 'true' : 'false');
-
-        const resp = await fetch('/api/install', { method: 'POST', body: fd });
+      if (isElectron) {
+        // Electron: use IPC
+        setStatus({ kind: 'work', message: `กำลังติดตั้ง... (${files.length} ไฟล์)` });
         
-        if (!resp.ok) {
+        // Use webUtils.getPathForFile() to get actual file path in Electron
+        const filesData = files.map(f => ({
+          name: f.name,
+          path: window.electronAPI.getFilePath(f),
+        }));
+
+        const data = await window.electronAPI.installSkins({
+          files: filesData,
+          dest: skinDest,
+          force: force,
+        });
+
+        if (data.results) {
+          data.results.forEach(r => {
+            if (r.warnings) {
+              r.warnings.forEach(w => warnings.push({ file: r.file, warning: w }));
+            }
+            results.push({ file: r.file, installedPath: r.installedPath });
+          });
+        }
+        if (data.errors) {
+          data.errors.forEach(e => errors.push(e));
+        }
+      } else {
+        // Web: use fetch API
+        for (let i = 0; i < files.length; i++) {
+          const zip = files[i];
+          setStatus({ kind: 'work', message: `กำลังติดตั้ง... (${i + 1}/${files.length})\n${zip.name}` });
+
+          const fd = new FormData();
+          fd.append('zip', zip);
+          fd.append('dest', skinDest);
+          fd.append('force', force ? 'true' : 'false');
+
+          const resp = await fetch('/api/install', { method: 'POST', body: fd });
+          
+          if (!resp.ok) {
+            const data = await resp.json().catch(() => null);
+            const msg = data?.error || `HTTP ${resp.status}`;
+            errors.push({ file: zip.name, error: msg });
+            continue;
+          }
+
           const data = await resp.json().catch(() => null);
-          const msg = data?.error || `HTTP ${resp.status}`;
-          errors.push({ file: zip.name, error: msg });
-          continue;
-        }
+          if (!data) {
+            errors.push({ file: zip.name, error: 'Backend ตอบกลับมาผิดรูปแบบ' });
+            continue;
+          }
 
-        const data = await resp.json().catch(() => null);
-        if (!data) {
-          errors.push({ file: zip.name, error: 'Backend ตอบกลับมาผิดรูปแบบ' });
-          continue;
-        }
+          if (data && Array.isArray(data.warnings) && data.warnings.length) {
+            data.warnings.forEach(w => warnings.push({ file: zip.name, warning: String(w) }));
+          }
 
-        if (data && Array.isArray(data.warnings) && data.warnings.length) {
-          data.warnings.forEach(w => warnings.push({ file: zip.name, warning: String(w) }));
+          results.push({ file: zip.name, installedPath: data.installedPath });
         }
-
-        results.push({ file: zip.name, installedPath: data.installedPath });
       }
 
       const lines = [];
@@ -347,8 +427,8 @@ function App() {
       setStatus({ kind: finalKind, message: lines.join('\n') });
     } catch (err) {
       let errMsg = `ผิดพลาด: ${err.message || String(err)}`;
-      if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        errMsg = 'ไม่สามารถเชื่อมต่อ backend\nกรุณารัน backend ที่ port 3000:\n\ncd webapp\nnpm start';
+      if (!isElectron && err.name === 'TypeError' && err.message.includes('fetch')) {
+        errMsg = 'ไม่สามารถเชื่อมต่อ backend\nกรุณารัน backend ที่ port 3000';
       }
       setStatus({ kind: 'err', message: errMsg });
     } finally {
@@ -360,9 +440,11 @@ function App() {
     <div className="wrap">
       <div className="card">
         <div className="header">
-          <img src="/wt-logo.png" alt="War Thunder" className="logo" />
+          <img src="./wt-logo.png" alt="War Thunder" className="logo" />
           <h1>War Thunder Auto Skin</h1>
-          <p className="muted">Local web app สำหรับติดตั้ง Skins และ Sound Mods</p>
+          <p className="muted">
+            {isElectron ? 'Desktop App' : 'Local Web App'} สำหรับติดตั้ง Skins และ Sound Mods
+          </p>
         </div>
 
         {/* Game Folder Settings */}
