@@ -3,38 +3,16 @@
  * ใช้ร่วมกันระหว่าง server.js และ electron/main.js
  */
 
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const fsp = fs.promises;
 const yauzl = require('yauzl');
+const { exists, safeUnlink } = require('./fsUtils');
 
 // Safety limits (zip bomb mitigation)
 const MAX_ZIP_ENTRIES = 5000;
 const MAX_TOTAL_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024; // 1 GiB
 const MAX_SINGLE_ENTRY_UNCOMPRESSED_BYTES = 512 * 1024 * 1024; // 512 MiB
-
-/**
- * Check if a path exists
- */
-async function exists(p) {
-  try {
-    await fsp.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Safely delete a file (ignore errors)
- */
-async function safeUnlink(p) {
-  try {
-    await fsp.unlink(p);
-  } catch {
-    // ignore
-  }
-}
 
 /**
  * Open and process a zip file with a callback
@@ -61,7 +39,7 @@ function withZipFile(zipPath, fn) {
  * Safely resolve a path within a base directory (prevent path traversal)
  */
 function safeResolveWithin(baseDirResolved, relZipPath) {
-  const parts = String(relZipPath).replace(/\\/g, '/').split('/').filter(p => p && p !== '.');
+  const parts = String(relZipPath).replaceAll('\\', '/').split('/').filter(p => p && p !== '.');
   for (const p of parts) {
     if (p === '..') return null;
     // Reject Windows drive-letter style embedded paths like C:foo
@@ -78,7 +56,7 @@ function safeResolveWithin(baseDirResolved, relZipPath) {
  * Strip top level directory from a path
  */
 function stripTopLevel(rawPath, expected) {
-  const parts = String(rawPath).replace(/\\/g, '/').split('/').filter(Boolean);
+  const parts = String(rawPath).replaceAll('\\', '/').split('/').filter(Boolean);
   if (parts.length === 0) return '';
   if (parts[0] !== expected) return null;
   return parts.slice(1).join('/');
@@ -97,7 +75,7 @@ function sanitizeFolderName(name) {
     .join('')
     .trim()
     .replace(/^\.+/, '')
-    .replace(/\s+$/g, '');
+    .replaceAll(/\s+$/g, '');
 
   return cleaned.length ? cleaned : 'skin';
 }
@@ -122,7 +100,7 @@ async function buildInstallPlan(zipPath, originalName, destRoot) {
           return;
         }
 
-        const raw = String(entry.fileName || '').replace(/\\/g, '/');
+        const raw = String(entry.fileName || '').replaceAll('\\', '/');
         if (!raw || raw.startsWith('__MACOSX/')) {
           zip.readEntry();
           return;
@@ -200,6 +178,22 @@ async function buildInstallPlan(zipPath, originalName, destRoot) {
 }
 
 /**
+ * Extract a single file entry from zip
+ */
+function extractFileEntry(zip, entry, outPath) {
+  return new Promise((resolve, reject) => {
+    zip.openReadStream(entry, (err, readStream) => {
+      if (err) return reject(err);
+      const writeStream = fs.createWriteStream(outPath);
+      readStream.on('error', reject);
+      writeStream.on('error', reject);
+      writeStream.on('close', resolve);
+      readStream.pipe(writeStream);
+    });
+  });
+}
+
+/**
  * Extract zip file according to install plan
  */
 async function extractZip(zipPath, plan) {
@@ -209,7 +203,7 @@ async function extractZip(zipPath, plan) {
   await withZipFile(zipPath, (zip) => {
     return new Promise((resolve, reject) => {
       zip.on('entry', (entry) => {
-        const raw = String(entry.fileName || '').replace(/\\/g, '/');
+        const raw = String(entry.fileName || '').replaceAll('\\', '/');
         if (!raw || raw.startsWith('__MACOSX/')) {
           zip.readEntry();
           return;
@@ -261,21 +255,9 @@ async function extractZip(zipPath, plan) {
               zip.readEntry();
               return;
             }
-
-            zip.openReadStream(entry, (err, readStream) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-              const writeStream = fs.createWriteStream(outPath);
-              readStream.on('error', reject);
-              writeStream.on('error', reject);
-              writeStream.on('close', () => {
-                zip.readEntry();
-              });
-              readStream.pipe(writeStream);
-            });
+            return extractFileEntry(zip, entry, outPath);
           })
+          .then(() => zip.readEntry())
           .catch(reject);
       });
 
@@ -322,7 +304,7 @@ async function extractSoundMod(zipPath, destDir, force) {
   await withZipFile(zipPath, (zip) => {
     return new Promise((resolve, reject) => {
       zip.on('entry', (entry) => {
-        const raw = String(entry.fileName || '').replace(/\\/g, '/');
+        const raw = String(entry.fileName || '').replaceAll('\\', '/');
         if (!raw || raw.startsWith('__MACOSX/')) {
           zip.readEntry();
           return;
@@ -363,25 +345,10 @@ async function extractSoundMod(zipPath, destDir, force) {
               reject(new Error(`ไฟล์มีอยู่แล้ว: ${fileName} (เปิด Force overwrite เพื่อเขียนทับ)`));
               return;
             }
-            return extractEntry();
+            return extractFileEntry(zip, entry, outPath);
           })
-          .catch(() => extractEntry());
-
-        function extractEntry() {
-          zip.openReadStream(entry, (err, readStream) => {
-            if (err) {
-              reject(err);
-              return;
-            }
-            const writeStream = fs.createWriteStream(outPath);
-            readStream.on('error', reject);
-            writeStream.on('error', reject);
-            writeStream.on('close', () => {
-              zip.readEntry();
-            });
-            readStream.pipe(writeStream);
-          });
-        }
+          .then(() => zip.readEntry())
+          .catch(() => extractFileEntry(zip, entry, outPath).then(() => zip.readEntry()).catch(reject));
       });
 
       zip.on('end', resolve);
@@ -413,7 +380,7 @@ async function installSoundMod(zipPath, originalName, destRoot, force) {
           return;
         }
 
-        const raw = String(entry.fileName || '').replace(/\\/g, '/');
+        const raw = String(entry.fileName || '').replaceAll('\\', '/');
         if (!raw || raw.startsWith('__MACOSX/')) {
           zip.readEntry();
           return;

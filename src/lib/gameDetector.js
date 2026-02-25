@@ -3,27 +3,28 @@
  * ตรวจหาและตรวจสอบโฟลเดอร์เกม War Thunder
  */
 
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const fsp = fs.promises;
-const { exec } = require('child_process');
-const util = require('util');
+const { exec } = require('node:child_process');
+const util = require('node:util');
+const { exists, getFolderSize, formatBytes } = require('./fsUtils');
 
 const execAsync = util.promisify(exec);
 
 // Common Steam library paths on Windows
 const COMMON_STEAM_PATHS = [
-  'C:\\Program Files (x86)\\Steam',
-  'C:\\Program Files\\Steam',
-  'C:\\SteamLibrary',
-  'D:\\Steam',
-  'D:\\SteamLibrary',
-  'E:\\Steam',
-  'E:\\SteamLibrary',
-  'F:\\Steam',
-  'F:\\SteamLibrary',
-  'G:\\Steam',
-  'G:\\SteamLibrary',
+  String.raw`C:\Program Files (x86)\Steam`,
+  String.raw`C:\Program Files\Steam`,
+  String.raw`C:\SteamLibrary`,
+  String.raw`D:\Steam`,
+  String.raw`D:\SteamLibrary`,
+  String.raw`E:\Steam`,
+  String.raw`E:\SteamLibrary`,
+  String.raw`F:\Steam`,
+  String.raw`F:\SteamLibrary`,
+  String.raw`G:\Steam`,
+  String.raw`G:\SteamLibrary`,
 ];
 
 // Possible War Thunder executable names
@@ -33,19 +34,7 @@ const WAR_THUNDER_EXECUTABLES = [
   'launcher.exe',
 ];
 
-const WAR_THUNDER_SUBPATH = 'steamapps\\common\\War Thunder';
-
-/**
- * Check if a path exists
- */
-async function exists(p) {
-  try {
-    await fsp.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const WAR_THUNDER_SUBPATH = String.raw`steamapps\common\War Thunder`;
 
 /**
  * Validate if a folder is a valid War Thunder installation
@@ -128,7 +117,7 @@ async function validateGameFolder(gameFolder) {
 async function getSteamPathFromRegistry() {
   try {
     const { stdout } = await execAsync(
-      'reg query "HKLM\\SOFTWARE\\WOW6432Node\\Valve\\Steam" /v InstallPath 2>nul || reg query "HKCU\\SOFTWARE\\Valve\\Steam" /v SteamPath 2>nul',
+      String.raw`reg query "HKLM\SOFTWARE\WOW6432Node\Valve\Steam" /v InstallPath 2>nul || reg query "HKCU\SOFTWARE\Valve\Steam" /v SteamPath 2>nul`,
       { encoding: 'utf8' }
     );
     
@@ -159,7 +148,7 @@ async function getSteamLibraryPaths(steamPath) {
     // Parse VDF format - look for "path" entries
     const pathMatches = content.matchAll(/"path"\s+"([^"]+)"/g);
     for (const match of pathMatches) {
-      const libPath = match[1].replace(/\\\\/g, '\\');
+      const libPath = match[1].replaceAll('\\\\', '\\');
       if (!libraryPaths.includes(libPath)) {
         libraryPaths.push(libPath);
       }
@@ -169,6 +158,18 @@ async function getSteamLibraryPaths(steamPath) {
   }
 
   return libraryPaths;
+}
+
+/**
+ * Check if a game folder candidate is valid and add to list
+ */
+async function addValidCandidate(candidates, wtPath, source) {
+  if (!candidates.some(c => c.path === wtPath) && await exists(wtPath)) {
+    const validation = await validateGameFolder(wtPath);
+    if (validation.valid) {
+      candidates.push({ path: wtPath, source });
+    }
+  }
 }
 
 /**
@@ -185,41 +186,26 @@ async function autoDetectGameFolder() {
       const libraryPaths = await getSteamLibraryPaths(steamPath);
       for (const libPath of libraryPaths) {
         const wtPath = path.join(libPath, WAR_THUNDER_SUBPATH);
-        if (await exists(wtPath)) {
-          const validation = await validateGameFolder(wtPath);
-          if (validation.valid) {
-            candidates.push({ path: wtPath, source: 'steam-registry' });
-          }
-        }
+        await addValidCandidate(candidates, wtPath, 'steam-registry');
       }
     }
 
     // 2. Check common Steam paths
     for (const steamBase of COMMON_STEAM_PATHS) {
       const wtPath = path.join(steamBase, WAR_THUNDER_SUBPATH);
-      if (!candidates.find(c => c.path === wtPath) && await exists(wtPath)) {
-        const validation = await validateGameFolder(wtPath);
-        if (validation.valid) {
-          candidates.push({ path: wtPath, source: 'common-path' });
-        }
-      }
+      await addValidCandidate(candidates, wtPath, 'common-path');
     }
 
     // 3. Check for standalone installation in common locations
     const standalonePaths = [
-      'C:\\Games\\War Thunder',
-      'D:\\Games\\War Thunder',
-      'C:\\Program Files\\War Thunder',
-      'C:\\Program Files (x86)\\War Thunder',
+      String.raw`C:\Games\War Thunder`,
+      String.raw`D:\Games\War Thunder`,
+      String.raw`C:\Program Files\War Thunder`,
+      String.raw`C:\Program Files (x86)\War Thunder`,
     ];
 
     for (const wtPath of standalonePaths) {
-      if (!candidates.find(c => c.path === wtPath) && await exists(wtPath)) {
-        const validation = await validateGameFolder(wtPath);
-        if (validation.valid) {
-          candidates.push({ path: wtPath, source: 'standalone' });
-        }
-      }
+      await addValidCandidate(candidates, wtPath, 'standalone');
     }
 
     if (candidates.length === 0) {
@@ -368,42 +354,6 @@ async function deleteSoundMod(soundModPath) {
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
-}
-
-/**
- * Get folder size recursively
- */
-async function getFolderSize(folderPath) {
-  let totalSize = 0;
-  
-  try {
-    const entries = await fsp.readdir(folderPath, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      const entryPath = path.join(folderPath, entry.name);
-      if (entry.isFile()) {
-        const stats = await fsp.stat(entryPath);
-        totalSize += stats.size;
-      } else if (entry.isDirectory()) {
-        totalSize += await getFolderSize(entryPath);
-      }
-    }
-  } catch {
-    // Ignore errors
-  }
-  
-  return totalSize;
-}
-
-/**
- * Format bytes to human readable string
- */
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 module.exports = {

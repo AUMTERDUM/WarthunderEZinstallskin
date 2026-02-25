@@ -1,9 +1,9 @@
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const fsp = fs.promises;
-const os = require('os');
-const { exec } = require('child_process');
-const util = require('util');
+const os = require('node:os');
+const { exec } = require('node:child_process');
+const util = require('node:util');
 
 const express = require('express');
 const multer = require('multer');
@@ -11,6 +11,7 @@ const multer = require('multer');
 // Import shared utilities
 const { installZip, installSoundMod, safeUnlink } = require('./src/lib/zipUtils');
 const { checkSoundModStatus, enableSoundMod } = require('./src/lib/configUtils');
+const { applyCustomKillMessage } = require('./src/lib/killMessageUtils');
 const { 
   validateGameFolder, 
   autoDetectGameFolder, 
@@ -19,12 +20,13 @@ const {
   deleteSkin,
   deleteSoundMod,
 } = require('./src/lib/gameDetector');
+const { getStatistics } = require('./src/lib/backupUtils');
 
 const execAsync = util.promisify(exec);
 
-const DEFAULT_DEST = 'F:\\SteamLibrary\\steamapps\\common\\War Thunder\\UserSkins';
-const DEFAULT_SOUND_DEST = 'F:\\SteamLibrary\\steamapps\\common\\War Thunder\\sound\\mod';
-const DEFAULT_GAME_FOLDER = 'F:\\SteamLibrary\\steamapps\\common\\War Thunder';
+const DEFAULT_DEST = String.raw`F:\SteamLibrary\steamapps\common\War Thunder\UserSkins`;
+const DEFAULT_SOUND_DEST = String.raw`F:\SteamLibrary\steamapps\common\War Thunder\sound\mod`;
+const DEFAULT_GAME_FOLDER = String.raw`F:\SteamLibrary\steamapps\common\War Thunder`;
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -36,6 +38,31 @@ const upload = multer({
     fileSize: 250 * 1024 * 1024, // 250MB
   },
 });
+
+// =====================
+// Helper: Process zip files
+// =====================
+async function processZipFiles(zipFiles, dest, force, installFunction) {
+  const results = [];
+  const errors = [];
+
+  for (const f of zipFiles) {
+    const originalName = f.originalname || '';
+    try {
+      if (!originalName.toLowerCase().endsWith('.zip')) {
+        throw new Error('File must be .zip');
+      }
+      const result = await installFunction(f.path, originalName, dest, force);
+      results.push({ file: originalName, ...result });
+    } catch (e) {
+      errors.push({ file: originalName || path.basename(f.path), error: (e && e.message) ? e.message : String(e) });
+    } finally {
+      await safeUnlink(f.path);
+    }
+  }
+
+  return { results, errors };
+}
 
 // =====================
 // Skin Installation API
@@ -50,23 +77,7 @@ app.post('/api/install', upload.array('zip', 50), async (req, res) => {
     const dest = (req.body && req.body.dest) ? String(req.body.dest) : DEFAULT_DEST;
     const force = String((req.body && req.body.force) || '') === 'on' || String((req.body && req.body.force) || '') === 'true';
 
-    const results = [];
-    const errors = [];
-
-    for (const f of zipFiles) {
-      const originalName = f.originalname || '';
-      try {
-        if (!originalName.toLowerCase().endsWith('.zip')) {
-          throw new Error('File must be .zip');
-        }
-        const result = await installZip(f.path, originalName, dest, force);
-        results.push({ file: originalName, ...result });
-      } catch (e) {
-        errors.push({ file: originalName || path.basename(f.path), error: (e && e.message) ? e.message : String(e) });
-      } finally {
-        await safeUnlink(f.path);
-      }
-    }
+    const { results, errors } = await processZipFiles(zipFiles, dest, force, installZip);
 
     if (zipFiles.length === 1) {
       if (errors.length) {
@@ -98,23 +109,7 @@ app.post('/api/install-sound', upload.array('zip', 50), async (req, res) => {
     // Ensure the mod directory exists
     await fsp.mkdir(dest, { recursive: true });
 
-    const results = [];
-    const errors = [];
-
-    for (const f of zipFiles) {
-      const originalName = f.originalname || '';
-      try {
-        if (!originalName.toLowerCase().endsWith('.zip')) {
-          throw new Error('File must be .zip');
-        }
-        const result = await installSoundMod(f.path, originalName, dest, force);
-        results.push({ file: originalName, ...result });
-      } catch (e) {
-        errors.push({ file: originalName || path.basename(f.path), error: (e && e.message) ? e.message : String(e) });
-      } finally {
-        await safeUnlink(f.path);
-      }
-    }
+    const { results, errors } = await processZipFiles(zipFiles, dest, force, installSoundMod);
 
     if (zipFiles.length === 1) {
       if (errors.length) {
@@ -158,6 +153,24 @@ app.get('/api/check-sound-mod', async (req, res) => {
   try {
     const gameFolder = (req.query && req.query.gameFolder) ? String(req.query.gameFolder) : DEFAULT_GAME_FOLDER;
     const result = await checkSoundModStatus(gameFolder);
+    return res.json(result);
+  } catch (err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    return res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+// Apply Custom Kill Message (config.blk + lang/menu.csv)
+app.post('/api/apply-kill-message', async (req, res) => {
+  try {
+    const gameFolder = (req.body && req.body.gameFolder) ? String(req.body.gameFolder) : DEFAULT_GAME_FOLDER;
+    const message = (req.body && req.body.message) ? String(req.body.message) : '';
+    const keys = (req.body && Array.isArray(req.body.keys)) ? req.body.keys.map(String) : undefined;
+
+    const result = await applyCustomKillMessage(gameFolder, message, keys);
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
     return res.json(result);
   } catch (err) {
     const msg = (err && err.message) ? err.message : String(err);
@@ -249,6 +262,20 @@ app.post('/api/delete-sound-mod', async (req, res) => {
 });
 
 // =====================
+// Statistics API (works in web mode too)
+// =====================
+app.get('/api/statistics', async (req, res) => {
+  try {
+    const gameFolder = (req.query && req.query.gameFolder) ? String(req.query.gameFolder) : DEFAULT_GAME_FOLDER;
+    const result = await getStatistics(gameFolder);
+    return res.json(result);
+  } catch (err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    return res.status(500).json({ ok: false, error: msg });
+  }
+});
+
+// =====================
 // Browse Folder API
 // =====================
 app.get('/api/browse-folder', async (req, res) => {
@@ -290,10 +317,10 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
       console.log('[browse-folder] Selected path:', selectedPath);
       return res.json({ ok: true, path: selectedPath });
-    } catch (execErr) {
-      console.error('[browse-folder] Execution error:', execErr);
+    } catch (error_) {
+      console.error('[browse-folder] Execution error:', error_);
       await fsp.unlink(tempFile).catch(() => {});
-      throw execErr;
+      throw error_;
     }
   } catch (err) {
     console.error('[browse-folder] Error:', err);

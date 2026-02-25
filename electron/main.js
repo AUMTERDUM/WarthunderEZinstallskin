@@ -1,11 +1,12 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const fsp = fs.promises;
 
 // Import shared utilities
 const { installZip, installSoundMod, exists } = require('../src/lib/zipUtils');
 const { checkSoundModStatus, enableSoundMod } = require('../src/lib/configUtils');
+const { applyCustomKillMessage } = require('../src/lib/killMessageUtils');
 const { 
   validateGameFolder, 
   autoDetectGameFolder, 
@@ -14,6 +15,12 @@ const {
   deleteSkin,
   deleteSoundMod,
 } = require('../src/lib/gameDetector');
+const { 
+  getStatistics, 
+  createBackup, 
+  restoreBackup, 
+  formatBytes,
+} = require('../src/lib/backupUtils');
 
 // Determine if we're in development mode
 const distPath = path.join(__dirname, '../dist/index.html');
@@ -21,7 +28,7 @@ const hasDistBuild = fs.existsSync(distPath);
 const isDev = process.env.ELECTRON_DEV === 'true' || (!app.isPackaged && !hasDistBuild);
 
 // Default paths
-const DEFAULT_GAME_FOLDER = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\War Thunder';
+const DEFAULT_GAME_FOLDER = String.raw`C:\Program Files (x86)\Steam\steamapps\common\War Thunder`;
 
 let mainWindow;
 
@@ -31,7 +38,7 @@ function createWindow() {
     height: 750,
     minWidth: 700,
     minHeight: 550,
-    icon: path.join(__dirname, '../public/icon.png'),
+    icon: path.join(__dirname, '../public/wt-logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -50,7 +57,8 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+(async () => {
+  await app.whenReady();
   createWindow();
 
   app.on('activate', () => {
@@ -58,13 +66,13 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+})();
 
 // =====================
 // IPC Handlers
@@ -82,6 +90,41 @@ ipcMain.handle('browse-folder', async () => {
   }
 
   return { ok: true, path: result.filePaths[0] };
+});
+
+// Browse for .blk file
+ipcMain.handle('browse-blk-file', async (event, { gameFolder, title, defaultPath } = {}) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: title || 'Select .blk file',
+      defaultPath: defaultPath ? path.resolve(String(defaultPath)) : undefined,
+      filters: [{ name: 'BLK Files', extensions: ['blk'] }],
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { ok: false, error: 'ยกเลิกการเลือกไฟล์' };
+    }
+
+    const absolutePath = result.filePaths[0];
+    const root = gameFolder ? path.resolve(String(gameFolder)) : null;
+
+    let selectedPath = absolutePath;
+    let isRelative = false;
+
+    if (root) {
+      const relative = path.relative(root, absolutePath);
+      const isInsideRoot = relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+      if (isInsideRoot) {
+        selectedPath = relative;
+        isRelative = true;
+      }
+    }
+
+    return { ok: true, selectedPath, absolutePath, isRelative };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
 });
 
 // Auto-detect game folder
@@ -208,6 +251,59 @@ ipcMain.handle('delete-sound-mod', async (event, { soundModPath }) => {
   return await deleteSoundMod(soundModPath);
 });
 
+// Get statistics
+ipcMain.handle('get-statistics', async (event, { gameFolder }) => {
+  return await getStatistics(gameFolder || DEFAULT_GAME_FOLDER);
+});
+
+// Create backup
+ipcMain.handle('create-backup', async (event, { gameFolder, includeSkins, includeSoundMods }) => {
+  try {
+    // Show save dialog
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'บันทึกไฟล์สำรอง',
+      defaultPath: `WT_Backup_${new Date().toISOString().slice(0,10)}.zip`,
+      filters: [{ name: 'Zip Files', extensions: ['zip'] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { ok: false, error: 'ยกเลิกการสำรอง' };
+    }
+
+    return await createBackup(
+      gameFolder || DEFAULT_GAME_FOLDER, 
+      result.filePath, 
+      { includeSkins, includeSoundMods }
+    );
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Restore backup
+ipcMain.handle('restore-backup', async (event, { gameFolder, overwrite }) => {
+  try {
+    // Show open dialog
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'เลือกไฟล์สำรอง',
+      filters: [{ name: 'Zip Files', extensions: ['zip'] }],
+      properties: ['openFile'],
+    });
+
+    if (result.canceled || !result.filePaths[0]) {
+      return { ok: false, error: 'ยกเลิกการกู้คืน' };
+    }
+
+    return await restoreBackup(
+      result.filePaths[0], 
+      gameFolder || DEFAULT_GAME_FOLDER, 
+      { overwrite }
+    );
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
 // Open folder in explorer
 ipcMain.handle('open-folder', async (event, folderPath) => {
   try {
@@ -216,6 +312,11 @@ ipcMain.handle('open-folder', async (event, folderPath) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// Apply custom kill message
+ipcMain.handle('apply-kill-message', async (event, { gameFolder, message, keys }) => {
+  return await applyCustomKillMessage(gameFolder || DEFAULT_GAME_FOLDER, message, keys);
 });
 
 // Ping (for compatibility)

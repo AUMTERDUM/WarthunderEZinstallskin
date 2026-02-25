@@ -22,11 +22,12 @@
     "dist:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "express": "^4.21.2",
     "multer": "^2.0.0",
-    "yauzl": "^2.10.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "yauzl": "^2.10.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.2",
@@ -59,7 +60,9 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/wt-logo.png",

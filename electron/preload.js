@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Browse for folder
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
 
+  // Browse for .blk file
+  browseBlkFile: (data) => ipcRenderer.invoke('browse-blk-file', data),
+
   // Get file path from File object (Electron security requirement)
   getFilePath: (file) => webUtils.getPathForFile(file),
 
@@ -27,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Enable sound mod
   enableSoundMod: (data) => ipcRenderer.invoke('enable-sound-mod', data),
 
+  // Apply custom kill message (updates config.blk + lang/menu.csv)
+  applyKillMessage: (data) => ipcRenderer.invoke('apply-kill-message', data),
+
   // List installed skins
   listInstalledSkins: (data) => ipcRenderer.invoke('list-installed-skins', data),
 
@@ -38,6 +44,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Delete sound mod
   deleteSoundMod: (data) => ipcRenderer.invoke('delete-sound-mod', data),
+
+  // Get statistics
+  getStatistics: (data) => ipcRenderer.invoke('get-statistics', data),
+
+  // Create backup
+  createBackup: (data) => ipcRenderer.invoke('create-backup', data),
+
+  // Restore backup
+  restoreBackup: (data) => ipcRenderer.invoke('restore-backup', data),
 
   // Open folder in explorer
   openFolder: (folderPath) => ipcRenderer.invoke('open-folder', folderPath),
